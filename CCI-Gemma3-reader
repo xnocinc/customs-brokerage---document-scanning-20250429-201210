@@ -1,0 +1,86 @@
+python
+import os
+from gemma3.process import DocumentReader, process_document
+import pymysql
+
+# Database connection setup
+def get_db_connection():
+    return mysql.connect(
+        host=os.getenv('DB_HOST'),
+        user=os.getenv('DB_USER'),
+        password=os.getenv('DB_PASSWORD'),
+        database=os.getenv('DB_NAME')
+    )
+
+def extract_invoice_data(file_path, cursor):
+    # Read and process the PDF document
+    reader = DocumentReader(file_path)
+    doc = process_document(reader)
+    
+    try:
+        # Extract relevant fields from the processed document
+        invoice_number = doc.extract('InvoiceNumber', convert=True)
+        date_of_issue = doc.extract('DateOfIssue')
+        due_date = doc.extract('DueDate')
+        description = doc.extract('Description')
+        quantity = doc.extract('Quantity')
+        unit_price = doc.extract('UnitPrice')
+        total_amount = doc.extract('TotalAmount')
+
+        # Convert extracted data to appropriate types
+        invoice_number = int(invoice_number)
+        date_of_issue = datetime.datetime.strptime(date_of_issue, '%Y-%m-%d').date()
+        due_date = datetime.datetime.strptime(due_date, '%Y-%m-%d').date()
+        
+        cursor.execute("""
+            INSERT INTO invoices (
+                InvoiceNumber,
+                DateOfIssue,
+                DueDate,
+                Description,
+                Quantity,
+                UnitPrice,
+                TotalAmount
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """, [
+            invoice_number,
+            date_of_issue,
+            due_date,
+            description.strip(),
+            int(quantity),
+            float(unit_price or 0.0),
+            float(total_amount or 0.0)
+        ])
+    except Exception as e:
+        print(f"Error processing {file_path}: {e}")
+
+def process_survey(file_path, cursor):
+    # Process any associated survey forms
+    reader = DocumentReader(file_path)
+    doc = process_document(reader)
+    
+    try:
+        # Extract additional fields from surveys
+        form_data = doc.extract('FormData')
+        
+        for field, value in form_data.items():
+            if isinstance(value, str) and value.strip() != '':
+                cursor.execute(f"INSERT INTO form_fields (Field, Value) VALUES ('{field}', '{value}')")
+    except Exception as e:
+        print(f"Error processing survey {file_path}: {e}")
+
+def main():
+    while True:
+        # Continuously scan for new PDF files
+        scanned_files = os.listdir('.')
+        
+        for file in scanned_files:
+            if file.lower().endswith('.pdf'):
+                process_invoice(file, get_db_connection())
+                
+        # Commit changes after processing all files
+        connection.commit()
+
+if __name__ == "__main__":
+    main()
